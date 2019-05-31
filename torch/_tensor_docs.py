@@ -527,6 +527,13 @@ cholesky_solve(input2, upper=False) -> Tensor
 See :func:`torch.cholesky_solve`
 """)
 
+add_docstr_all('cholesky_inverse',
+               r"""
+cholesky_inverse(upper=False) -> Tensor
+
+See :func:`torch.cholesky_inverse`
+""")
+
 add_docstr_all('clamp',
                r"""
 clamp(min, max) -> Tensor
@@ -989,7 +996,7 @@ Fills :attr:`self` tensor with elements drawn from the geometric distribution:
 
 .. math::
 
-    f(X=k) = (1 - p)^{k - 1} p
+    f(X=k) = p^{k - 1} (1 - p)
 
 """)
 
@@ -1721,13 +1728,6 @@ Example:
     torch.Size([5, 2, 3])
 """)
 
-add_docstr_all('potri',
-               r"""
-potri(upper=True) -> Tensor
-
-See :func:`torch.potri`
-""")
-
 add_docstr_all('pow',
                r"""
 pow(exponent) -> Tensor
@@ -1777,7 +1777,7 @@ Example::
 
 add_docstr_all('qr',
                r"""
-qr() -> (Tensor, Tensor)
+qr(some=True) -> (Tensor, Tensor)
 
 See :func:`torch.qr`
 """)
@@ -2498,6 +2498,13 @@ byte() -> Tensor
 ``self.byte()`` is equivalent to ``self.to(torch.uint8)``. See :func:`to`.
 """)
 
+add_docstr_all('bool',
+               r"""
+bool() -> Tensor
+
+``self.bool()`` is equivalent to ``self.to(torch.bool)``. See :func:`to`.
+""")
+
 add_docstr_all('char',
                r"""
 char() -> Tensor
@@ -3183,4 +3190,9 @@ Is ``True`` if the Tensor is stored on the GPU, ``False`` otherwise.
 add_docstr_all('device',
                r"""
 Is the :class:`torch.device` where this Tensor is.
+""")
+
+add_docstr_all('ndim',
+               r"""
+Alias for :meth:`~Tensor.dim()`
 """)

@@ -1,9 +1,16 @@
 #pragma once
 
-#include <unordered_set>
-#include <unordered_map>
+#include <c10/util/ArrayRef.h>
+#include <c10/util/sparse_bitset.h>
 #include <memory>
+#include <unordered_map>
+#include <unordered_set>
+#include <vector>
 
+#include <torch/csrc/WindowsTorchApiMacro.h>
+
+// Uses a compressed index representation for faster comparisons
+typedef c10::SparseBitVector<128> MemoryLocations;
 namespace torch {
 namespace jit {
 
@@ -25,10 +32,19 @@ struct Value;
 //
 // So, by traversing the "points-to" graph to the leaves, you can determine
 // which memory locations an element may point to.
-class MemoryDAG {
+class TORCH_API MemoryDAG {
  public:
+  // explicitly delete copy constructor because otherwise windows build is
+  // confused for an exported class see
+  // https://stackoverflow.com/a/51033485/105137
+  MemoryDAG() {}
+  MemoryDAG(const MemoryDAG&) = delete;
+  MemoryDAG& operator=(const MemoryDAG&) = delete;
+
   // Make `from` point at `to`.
   void makePointerTo(Element* from, Element* to);
+
+  void addToContainedElements(Element* contained, Element* container);
 
   // Make a fresh element (i.e. an element that doesn't point to anything) and
   // return it.
@@ -37,6 +53,14 @@ class MemoryDAG {
   // Do `a` and `b` potentially share a memory location?
   bool mayAlias(const Element* a, const Element* b) const;
   bool mayAlias(Element* a, Element* b) const;
+
+  // Does a hold reference to any memory that is stored in elem, or vice versa?
+  bool mayContainAlias(const Element* a, const Element* b) const;
+  bool mayContainAlias(Element* a, Element* b) const;
+
+  bool mayContainAlias(
+      const at::ArrayRef<Element*>& a,
+      const at::ArrayRef<Element*>& b) const;
 
   // Do any values in group `a` potentially share a memory location with any
   // value in group `b`?
@@ -49,13 +73,11 @@ class MemoryDAG {
     }
 
     // Record all memory locations from group `a`
-    std::unordered_set<const Element*> memoryLocations;
+    MemoryLocations memoryLocations;
     for (auto it = a.cbegin(); it != a.cend();) {
       const auto element = *it;
 
-      for (const auto loc : element->getMemoryLocations()) {
-        memoryLocations.insert(loc);
-      }
+      memoryLocations |= element->getMemoryLocations();
 
       const auto cnt = a.count(*it);
       std::advance(it, cnt);
@@ -64,11 +86,8 @@ class MemoryDAG {
     // If any of group `b`s memory locations overlap, return true.
     for (auto it = b.cbegin(); it != b.cend();) {
       const auto element = *it;
-
-      for (const auto loc : element->getMemoryLocations()) {
-        if (memoryLocations.count(loc)) {
-          return true;
-        }
+      if (memoryLocations.intersects(element->getMemoryLocations())) {
+        return true;
       }
 
       const auto cnt = b.count(*it);
@@ -79,7 +98,9 @@ class MemoryDAG {
   }
 
  private:
-   bool mayAliasImpl(const Element* a, const Element* b) const;
+  bool mayAliasImpl(const Element* a, const Element* b) const;
+  bool mayContainAliasImpl(const Element* contained, const Element* container)
+      const;
   // Structure that owns all the element pointers. It's a map of
   //  raw pointer -> unique_ptr to facilitate easy queries
   std::unordered_map<Element*, std::unique_ptr<Element>> elements_;
@@ -100,22 +121,28 @@ struct Element {
 
   // All elements that this element *may* point to. It's possible to have
   // multiple elements that you might point to due to control flow/complex ops
-  std::unordered_set<Element*> pointsTo;
+  MemoryLocations pointsTo;
   // Backreference for points-to.
-  std::unordered_set<Element*> pointedFrom;
+  MemoryLocations pointedFrom;
+
+  MemoryLocations contained_elements;
+  static unsigned indexCount;
+  signed index;
+  Element(const Value* value_);
 
   // Return the unique memory locations that `Element` might represent.
-  std::unordered_set<const Element*> getMemoryLocations() const;
+  TORCH_API const MemoryLocations& getMemoryLocations() const;
   // We do path compression to make repeated memory location queries faster.
   // An empty cache means it is invalidated (it can never be empty otherwise,
   // since every element must point to at least one memory location).
-  mutable std::unordered_set<const Element*> cachedMemoryLocations_;
+  mutable MemoryLocations cachedMemoryLocations_;
 
   // Do a breadth-first search over the graph, starting at `this` and
   // traversing in the direction `dir`.`fn` will be run on each element.
-  template <typename Fn>
-  bool bfs(Fn fn, BfsDirection dir) const;
-};
+  void bfs(BfsDirection dir, MemoryLocations& res) const;
 
+  // Converts from the compressed index representation
+  static const Element* fromIndex(unsigned x);
+};
 } // namespace jit
 } // namespace torch

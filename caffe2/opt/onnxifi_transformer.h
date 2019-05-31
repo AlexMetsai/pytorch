@@ -23,13 +23,10 @@ struct OnnxifiTransformerOptions {
   bool debug{false};
 
   // Pass serialized onnx model if true, otherwise pass serialized c2 model
-  bool use_onnx{true};
+  bool use_onnx{false};
 
-  // Whether to attach AdjustBatch ops or not. In order to maintain static
-  // shapes to the backend, most of the time, we need to add AdjustBatch ops to
-  // the inputs/outputs of the Onnxifi op. But if backend itself supports max
-  // batch size, we don't need to do it.
-  bool add_adjust_batch_ops{true};
+  // Whether to adjust batch at the ouptuts or not
+  bool adjust_batch{true};
 
   // Minimum number of ops to create an onnxifi op. If the subgraph is too
   // small, it doesn't make sense to lower it to backend.
@@ -71,12 +68,13 @@ class CAFFE2_API OnnxifiTransformer final : public BackendTransformerBase {
       const ShapeInfoMap& shape_hints);
 
   // We already have all the ops and external inputs and outputs!
-  OperatorDef BuildOnnxifiOp(
+  OperatorDef buildOnnxifiOp(
       const std::string& onnx_model_str,
       const std::unordered_map<std::string, TensorShape>& output_size_hints,
       const std::unordered_set<std::string>& initialization_list,
       const std::vector<std::string>& external_inputs,
-      const std::vector<std::string>& external_outputs);
+      const std::vector<std::string>& external_outputs,
+      const std::unordered_map<std::string, ShapeInfo>& shape_hints);
 
   // Transform by passing C2 proto to backend
   NetDef TransformViaC2(

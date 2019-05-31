@@ -6,6 +6,7 @@ import shutil
 import random
 import tempfile
 import unittest
+import contextlib
 import torch
 import torch.nn as nn
 import torch.utils.data
@@ -195,6 +196,34 @@ class TestCheckpoint(TestCase):
             2,
             torch.randn(1, 100, requires_grad=True),
             torch.randn(1, 60, requires_grad=True)
+        )
+
+    def test_checkpoint_sequential_deprecated_multiple_args(self):
+        class Two(nn.Module):
+            def forward(self, a, b):
+                return a, b
+
+        model = nn.Sequential(Two())
+        a = torch.randn(1, 100, requires_grad=True)
+        b = torch.randn(1, 100, requires_grad=True)
+
+        self.assertWarnsRegex(
+            lambda: checkpoint_sequential(model, 1, a, b),
+            'deprecated',
+            'checkpoint_sequential with multiple args should be deprecated',
+        )
+
+    def test_checkpoint_sequential_deprecated_no_args(self):
+        class Noop(nn.Module):
+            def forward(self):
+                pass
+
+        model = nn.Sequential(Noop())
+
+        self.assertWarnsRegex(
+            lambda: checkpoint_sequential(model, 1),
+            'deprecated',
+            'checkpoint_sequential with no args should be deprecated',
         )
 
     def test_checkpoint_rng_cpu(self):
@@ -492,11 +521,26 @@ class TestONNXUtils(TestCase):
         try_check_onnx_broadcast(dims1, dims2, True, False)
 
 
+# Errors will still be raised and reported
+@contextlib.contextmanager
+def suppress_stderr():
+    original = sys.stderr
+    sys.stderr = open(os.devnull, 'w')
+    yield
+    sys.stderr = original
+
+
 class TestHub(TestCase):
     @classmethod
     @skipIfNoTorchVision
     def setUpClass(cls):
-        cls.resnet18_pretrained = models.__dict__['resnet18'](pretrained=True).state_dict()
+        # The current torchvision code does not provide a way to disable tqdm
+        # progress bar, leading this download printing a huge number of lines
+        # in CI.
+        # TODO: remove this context manager when torchvision provides a way.
+        #       See pytorch/torchvision#862
+        with suppress_stderr():
+            cls.resnet18_pretrained = models.__dict__['resnet18'](pretrained=True).state_dict()
 
     @skipIfNoTorchVision
     def test_load_from_github(self):
@@ -515,8 +559,8 @@ class TestHub(TestCase):
             'resnet18',
             pretrained=True)
         self.assertEqual(self.resnet18_pretrained, hub_model.state_dict())
-        assert os.path.exists(temp_dir + '/vision_master')
-        shutil.rmtree(temp_dir + '/vision_master')
+        assert os.path.exists(temp_dir + '/pytorch_vision_master')
+        shutil.rmtree(temp_dir + '/pytorch_vision_master')
 
     def test_list_entrypoints(self):
         entry_lists = hub.list('pytorch/vision', force_reload=True)
